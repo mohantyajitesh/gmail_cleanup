@@ -39,11 +39,21 @@ const CONFIG = {
   olderThanDays: 30,
   excludeStarred: true,
   excludeImportant: true,
+  keepLabel: 'keep',
+  autoLabel: 'auto-trashed',
   maxPerRun: 10000,
 };
 ```
 
 Edit, save, and the next run uses the new values. To stop it, delete the two triggers.
+
+## Protecting specific emails (v1.1)
+
+- **Keep something forever:** add the label `keep` to any email or thread and the cleanup will never touch it.
+- **See what the script took:** everything it trashes is tagged `auto-trashed`. Search `in:trash label:auto-trashed` to review, cleanly separated from mail you deleted yourself.
+- **Rescue is permanent:** move anything back out of Trash and the script never takes it again.
+
+The `auto-trashed` label is created automatically the first time v1.1 runs — that's expected.
 
 ## Prefer to be walked through it?
 
