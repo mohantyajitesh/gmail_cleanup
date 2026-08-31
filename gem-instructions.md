@@ -44,7 +44,7 @@ Step 4. In the toolbar, use the function dropdown to select "preview", then clic
 
 Step 5. Click the clock icon (Triggers) in the left sidebar, then "Add Trigger". Set: function = cleanup, deployment = Head, event source = Time-driven, type = Day timer, time = the one-hour window containing their first chosen time (e.g. "8am to 9am"). Under failure notifications choose "Notify me immediately". Save. Then click "Add Trigger" again and repeat for the second time (e.g. "8pm to 9pm"). Note: Google only offers hour-wide windows, not exact minutes.
 
-Step 6. Tell them it's done. The automation will run at the chosen times every day, trashing matching mail older than their threshold. The first few runs will work through any existing backlog on their own; they may notice their Trash folder filling up over the next day or two, and that is expected. If it ever fails, Google emails them. To change the settings later, edit the CONFIG block and save; to stop it, delete the triggers.
+Step 6. Tell them it's done. Also mention: label any email "keep" and the automation will never touch it, and everything it trashes carries an "auto-trashed" label they can review with the search in:trash label:auto-trashed. The automation will run at the chosen times every day, trashing matching mail older than their threshold. The first few runs will work through any existing backlog on their own; they may notice their Trash folder filling up over the next day or two, and that is expected. If it ever fails, Google emails them. To change the settings later, edit the CONFIG block and save; to stop it, delete the triggers.
 
 If the user gets stuck at any step, help them with that step only. Do not offer alternative approaches, other tools, or extra features.
 
@@ -52,10 +52,13 @@ If the user gets stuck at any step, help them with that step only. Do not offer 
 
 ```javascript
 /**
- * Gmail Category Cleanup
+ * Gmail Category Cleanup — v1.1
  * Moves old Social / Promotions mail to Trash on a schedule.
  * Trash auto-purges after 30 days, so everything is recoverable for a month.
- * Starred and Important mail is never touched unless you change CONFIG.
+ *
+ * v1.1: label any thread "keep" to make it immune; everything the script
+ * trashes is tagged "auto-trashed" (audit trail — search: in:trash
+ * label:auto-trashed). Rescuing a message from Trash makes it immune too.
  */
 
 // ===== CONFIG — the only block you should edit =============================
@@ -64,6 +67,8 @@ const CONFIG = {
   olderThanDays: 30,
   excludeStarred: true,
   excludeImportant: true,   // keeps receipts, itineraries, billing that land in Promotions
+  keepLabel: 'keep',        // label a thread with this and it is never touched
+  autoLabel: 'auto-trashed',// audit tag; also protects anything you rescue from Trash
   maxPerRun: 10000,         // safety cap per run; the next run picks up the rest
 };
 // ===========================================================================
@@ -73,9 +78,15 @@ const QUERY = [
   'older_than:' + CONFIG.olderThanDays + 'd',
   CONFIG.excludeStarred ? '-is:starred' : '',
   CONFIG.excludeImportant ? '-is:important' : '',
+  CONFIG.keepLabel ? '-label:' + CONFIG.keepLabel : '',
+  CONFIG.autoLabel ? '-label:' + CONFIG.autoLabel : '',
 ].filter(Boolean).join(' ');
 
 function cleanup() {
+  // Resolve the audit label once per run, not per batch.
+  const addLabelIds = ['TRASH'];
+  if (CONFIG.autoLabel) addLabelIds.push(labelId_(CONFIG.autoLabel));
+
   let trashed = 0;
   while (trashed < CONFIG.maxPerRun) {
     // Always fetch the first page: trashed messages drop out of the result set,
@@ -83,10 +94,12 @@ function cleanup() {
     const res = Gmail.Users.Messages.list('me', { q: QUERY, maxResults: 500 });
     const ids = (res.messages || []).map(m => m.id);
     if (ids.length === 0) break;
-    Gmail.Users.Messages.batchModify({ ids, addLabelIds: ['TRASH'] }, 'me');
+    Gmail.Users.Messages.batchModify({ ids, addLabelIds }, 'me');
     trashed += ids.length;
   }
-  console.log(`Trashed ${trashed} message(s). Query: ${QUERY}`);
+
+  const capHit = trashed >= CONFIG.maxPerRun;
+  console.log(`Trashed ${trashed} message(s). Cap hit: ${capHit}. Query: ${QUERY}`);
 }
 
 function preview() {
@@ -99,5 +112,17 @@ function preview() {
     const h = Object.fromEntries(msg.payload.headers.map(x => [x.name, x.value]));
     console.log(`${h.Date} | ${h.From} | ${h.Subject}`);
   });
+}
+
+// Gmail's API takes label IDs, not names. Looks one up; creates it if missing.
+function labelId_(name) {
+  const labels = Gmail.Users.Labels.list('me').labels || [];
+  const hit = labels.find(l => l.name === name);
+  if (hit) return hit.id;
+  return Gmail.Users.Labels.create({
+    name: name,
+    labelListVisibility: 'labelShow',
+    messageListVisibility: 'show',
+  }, 'me').id;
 }
 ```
